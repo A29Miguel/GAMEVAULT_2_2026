@@ -72,6 +72,83 @@ function GamepadModel() {
   )
 }
 
+// --- NUEVO COMPONENTE: MODELOS 3D POR CATEGORÍA ---
+function Product3D({ category }) {
+  const group = useRef()
+  
+  useFrame((state, delta) => {
+    group.current.rotation.y += delta * 0.6 // Rotación automática
+  })
+
+  return (
+    <group ref={group}>
+      {/* 1. MODELO: VIDEOJUEGO (Caja y Disco) */}
+      {category === 'Videojuego' && (
+        <group rotation={[0.2, 0, 0]}>
+          <RoundedBox args={[2.5, 3.5, 0.2]} radius={0.1} smoothness={4}>
+            <meshStandardMaterial color="#3b82f6" roughness={0.3} metalness={0.2} />
+          </RoundedBox>
+          {/* Título del juego (simulado) */}
+          <mesh position={[0, 1, 0.11]}>
+            <planeGeometry args={[2, 0.5]} />
+            <meshBasicMaterial color="#ffffff" transparent opacity={0.8} />
+          </mesh>
+          {/* Disco flotando */}
+          <mesh position={[0, 0, 1]} rotation={[Math.PI / 2, 0, 0]}>
+            <cylinderGeometry args={[1.2, 1.2, 0.05, 32]} />
+            <meshStandardMaterial color="#60a5fa" metalness={0.8} roughness={0.2} />
+          </mesh>
+        </group>
+      )}
+
+      {/* 2. MODELO: CONSOLA (Caja gruesa con detalles) */}
+      {category === 'Consola' && (
+        <group rotation={[0.4, 0, 0]}>
+          <RoundedBox args={[3.5, 3, 0.8]} radius={0.2} smoothness={4}>
+            <meshStandardMaterial color="#1e3a8a" roughness={0.4} />
+          </RoundedBox>
+          {/* Botón de encendido */}
+          <mesh position={[1.2, 1, 0.41]}>
+            <cylinderGeometry args={[0.1, 0.1, 0.1, 32]} />
+            <meshStandardMaterial color="#22c55e" emissive="#22c55e" emissiveIntensity={0.5} />
+          </mesh>
+          {/* Líneas decorativas */}
+          <mesh position={[0, -0.5, 0.41]}>
+            <boxGeometry args={[3, 0.05, 0.05]} />
+            <meshBasicMaterial color="#60a5fa" />
+          </mesh>
+        </group>
+      )}
+
+      {/* 3. MODELO: ACCESORIO (Audífonos Gamer) */}
+      {category === 'Accesorio' && (
+        <group position={[0, -0.5, 0]}>
+          {/* Diadema */}
+          <mesh position={[0, 1.5, 0]} rotation={[0, 0, 0]}>
+            <torusGeometry args={[1.5, 0.15, 16, 50, Math.PI]} />
+            <meshStandardMaterial color="#3b82f6" metalness={0.6} roughness={0.3} />
+          </mesh>
+          {/* Almohadilla Izquierda */}
+          <mesh position={[-1.5, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
+            <cylinderGeometry args={[0.6, 0.6, 0.5, 32]} />
+            <meshStandardMaterial color="#1e3a8a" />
+          </mesh>
+          {/* Almohadilla Derecha */}
+          <mesh position={[1.5, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
+            <cylinderGeometry args={[0.6, 0.6, 0.5, 32]} />
+            <meshStandardMaterial color="#1e3a8a" />
+          </mesh>
+        </group>
+      )}
+
+      {/* 4. MODELO POR DEFECTO (El Mando del Dashboard) */}
+      {(!category || category === 'Consola' && false) && (
+         <GamepadModel />
+      )}
+    </group>
+  )
+}
+
 export default function App() {
   const [page, setPage] = useState('dashboard')
   const [products, setProducts] = useState([])
@@ -150,19 +227,43 @@ export default function App() {
     setReceiptModal({ items: cart, total })
   }
 
-  async function processSale(clientData = null) {
+    async function processSale(clientData = null) {
     if (!receiptModal) return;
+    
+    // Preparamos los datos asegurándonos de que el JSON se guarde bien
     const salePayload = { 
-      codigo: `GV-${Date.now().toString().slice(-6)}`, total: receiptModal.total, vendedor: role,
-      cliente_nombre: clientData ? clientData.name : 'Consumidor Final', cliente_ci: clientData ? clientData.ci : 'N/A', items: receiptModal.items 
+      codigo: `GV-${Date.now().toString().slice(-6)}`, 
+      total: Number(receiptModal.total), 
+      vendedor: role,
+      cliente_nombre: clientData ? clientData.name : 'Consumidor Final', 
+      cliente_ci: clientData ? clientData.ci : 'N/A', 
+      items: JSON.stringify(receiptModal.items) // <-- Convertimos a string para JSONB
     }
-    await apiCreateSale(salePayload)
-    for (const item of receiptModal.items) {
-      const prod = products.find(p => p.id === item.id)
-      if (prod) await apiUpdateStock(prod.id, prod.stock - item.quantity)
+
+    try {
+      // 1. Guardar la venta
+      await apiCreateSale(salePayload)
+      
+      // 2. Descontar stock
+      for (const item of receiptModal.items) {
+        const prod = products.find(p => p.id === item.id)
+        if (prod) {
+          await apiUpdateStock(prod.id, prod.stock - item.quantity)
+        }
+      }
+
+      // 3. Refrescar datos y cerrar modal
+      setProducts(await apiGetProducts())
+      setSales(await apiGetSales())
+      setCart([])
+      setReceiptModal(null)
+      flash('Venta registrada correctamente')
+      setPage('history')
+      
+    } catch (error) {
+      console.error("Error exacto de Supabase:", error)
+      alert("No se pudo registrar la venta. Revisa la consola (F12) para más detalles.")
     }
-    setProducts(await apiGetProducts()); setSales(await apiGetSales())
-    setCart([]); setReceiptModal(null); flash('Venta registrada'); setPage('history')
   }
 
   const handleAdminLogin = (e) => {
@@ -349,7 +450,43 @@ function PageHeading({ eyebrow, title, subtitle, action, onAction }) { return <d
 function Stat({ icon: Icon, label, value, note, trend }) { return <div className="stat-card"><div className="stat-top"><span>{label}</span><div className="stat-icon"><Icon size={18}/></div></div><div className="stat-value">{value}</div><div className={`stat-note ${trend}`}><span>{trend === 'down' ? <ArrowDownRight size={14}/> : <ArrowUpRight size={14}/>}</span>{note}</div></div> }
 function ProductIcon({ category }) { const Icon = categoryIcon[category] || Gamepad; return <div className="product-icon"><Icon size={20}/></div> }
 function Products({ products, query, setQuery, onAdd, onEdit, onDelete }) { return <><PageHeading eyebrow="CATÁLOGO" title="Productos" subtitle="Administra el catálogo." action="Nuevo producto" onAction={onAdd}/><div className="toolbar"><div className="search-box"><Search size={17}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar..."/></div><button className="secondary-button"><Filter size={16}/> Filtros</button></div><div className="panel table-panel"><div className="table-title"><div><h3>Catálogo</h3><p>{products.length} productos</p></div><span className="table-badge">SUPABASE DB</span></div><div className="table-wrap"><table><thead><tr><th>PRODUCTO</th><th>CÓDIGO</th><th>CATEGORÍA</th><th>PRECIO</th><th>STOCK</th><th>ESTADO</th><th></th></tr></thead><tbody>{products.map(p => <tr key={p.id}><td><div className="product-cell"><ProductIcon category={p.categoria}/><b>{p.nombre}</b></div></td><td className="muted-cell">{p.sku}</td><td>{p.categoria}</td><td className="price-cell">{money(p.precio)}</td><td>{p.stock}</td><td><span className={`stock-badge ${p.stock <= 3 ? 'low' : 'available'}`}>{p.stock <= 3 ? 'Stock bajo' : 'Disponible'}</span></td><td><div className="row-actions"><button className="icon-button" onClick={() => onEdit(p)}><Pencil size={15}/></button><button className="icon-button danger-hover" onClick={() => onDelete(p.id)}><Trash2 size={15}/></button></div></td></tr>)}</tbody></table>{products.length === 0 && <Empty icon={Package} title="No hay productos" text="Prueba con otro término."/>}</div></div></> }
-function Inventory({ products, query, setQuery }) { return <><PageHeading eyebrow="CONTROL" title="Inventario" subtitle="Cantidades disponibles."/><div className="inventory-summary"><div><span>Registrados</span><b>{products.length}</b></div><div><span>Stock bajo</span><b className="warning-text">{products.filter(p => p.stock <= 3).length}</b></div><div><span>Unidades</span><b>{products.reduce((a,p) => a + p.stock, 0)}</b></div></div><div className="toolbar"><div className="search-box"><Search size={17}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar..."/></div></div><div className="inventory-grid">{products.map(p => <div className="inventory-card" key={p.id}><div className="inventory-card-top"><ProductIcon category={p.categoria}/><span className={`stock-badge ${p.stock <= 3 ? 'low' : 'available'}`}>{p.stock <= 3 ? 'Reponer' : 'Disponible'}</span></div><h3>{p.nombre}</h3><span className="muted-cell">{p.sku} · {p.categoria}</span><div className="stock-number"><b>{p.stock}</b><span>unidades</span></div><div className="stock-track"><i style={{width: `${Math.min(100, p.stock * 8)}%`}}/></div></div>)}</div></> }
+function Inventory({ products, query, setQuery }) {
+  return (
+    <>
+      <PageHeading eyebrow="CONTROL" title="Inventario" subtitle="Cantidades disponibles."/>
+      <div className="inventory-summary">
+        <div><span>Registrados</span><b>{products.length}</b></div>
+        <div><span>Stock bajo</span><b className="warning-text">{products.filter(p => p.stock <= 3).length}</b></div>
+        <div><span>Unidades</span><b>{products.reduce((a,p) => a + p.stock, 0)}</b></div>
+      </div>
+      <div className="toolbar">
+        <div className="search-box"><Search size={17}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar..."/></div>
+      </div>
+      <div className="inventory-grid">
+        {products.map(p => (
+          <div className="inventory-card" key={p.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+            <div className="inventory-card-top" style={{ width: '100%' }}>
+              <span className={`stock-badge ${p.stock <= 3 ? 'low' : 'available'}`}>{p.stock <= 3 ? 'Reponer' : 'Disponible'}</span>
+            </div>
+            
+            {/* EL MODELO 3D EN EL INVENTARIO */}
+            <div style={{ width: '100%', height: '120px', margin: '10px 0' }}>
+              <Canvas camera={{ position: [0, 0, 8], fov: 50 }}>
+                <ambientLight intensity={0.8} />
+                <directionalLight position={[10, 10, 5]} intensity={1} />
+                <Product3D category={p.categoria} />
+              </Canvas>
+            </div>
+
+            <h3 style={{ margin: '5px 0' }}>{p.nombre}</h3>
+            <span className="muted-cell">{p.sku} · {p.categoria}</span>
+            <div className="stock-number" style={{ marginTop: '10px' }}><b>{p.stock}</b><span>unidades</span></div>
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
 function Sales({ products, cart, addToCart, changeQuantity, finishSale, query, setQuery, setCart }) {
   const available = products.filter(p => `${p.nombre} ${p.categoria}`.toLowerCase().includes(query.toLowerCase()))
   const total = cart.reduce((a,p) => a + p.precio * p.quantity, 0)
@@ -358,6 +495,62 @@ function Sales({ products, cart, addToCart, changeQuantity, finishSale, query, s
 }
 function History({ sales }) { return <><PageHeading eyebrow="TRANSACCIONES" title="Historial" subtitle="Ventas registradas."/><div className="panel table-panel"><div className="table-title"><div><h3>Ventas</h3><p>{sales.length} operaciones</p></div><CalendarDays size={19} className="muted-icon"/></div>{sales.length ? <div className="table-wrap"><table><thead><tr><th>CÓDIGO</th><th>FECHA</th><th>VENDEDOR</th><th>CLIENTE</th><th>TOTAL</th><th>ESTADO</th></tr></thead><tbody>{sales.map(s => <tr key={s.id}><td><b>{s.codigo}</b></td><td>{new Date(s.fecha).toLocaleString('es-BO')}</td><td>{s.vendedor}</td><td>{s.cliente_nombre}</td><td className="price-cell">{money(s.total)}</td><td><span className="stock-badge available">Completada</span></td></tr>)}</tbody></table></div> : <Empty icon={ReceiptText} title="Sin ventas" text="No hay historial."/>}</div></> }
 function UsersPage({ role, setRole }) { return <><PageHeading eyebrow="ACCESOS" title="Usuarios" subtitle="Perfiles del sistema."/><div className="panel user-panel"><div className="user-row"><div className="user-avatar">GV</div><div className="user-data"><b>Usuario Demo</b><span>demo@gamevault.local</span></div><span className="stock-badge available">Activo</span></div><div className="form-field"><label>Rol actual</label><select value={role} onChange={e => setRole(e.target.value)}><option>Administrador</option><option>Empleado</option></select></div></div></> }
-function ProductModal({ editing, onClose, onSubmit }) { return <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}><form className="modal" onSubmit={onSubmit}><div className="modal-head"><div><span className="eyebrow">CATÁLOGO</span><h2>{editing ? 'Editar' : 'Nuevo'} producto</h2></div><button type="button" className="icon-button" onClick={onClose}><X/></button></div><div className="modal-grid"><div className="form-field full"><label>Nombre</label><input name="name" required defaultValue={editing?.nombre} placeholder="Ej. Super Mario"/></div><div className="form-field"><label>SKU</label><input name="sku" defaultValue={editing?.sku} placeholder="GV-006"/></div><div className="form-field"><label>Categoría</label><select name="category" defaultValue={editing?.categoria || 'Videojuego'}><option>Videojuego</option><option>Consola</option><option>Accesorio</option></select></div><div className="form-field"><label>Precio (Bs)</label><input name="price" type="number" min="0" step="0.01" required defaultValue={editing?.precio} placeholder="0.00"/></div><div className="form-field"><label>Stock</label><input name="stock" type="number" min="0" step="1" required defaultValue={editing?.stock} placeholder="0"/></div></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" type="submit"><Check size={16}/>{editing ? 'Guardar' : 'Registrar'}</button></div></form></div> }
+function ProductModal({ editing, onClose, onSubmit }) {
+  // Estado local para saber qué categoría está seleccionada y mostrar el 3D
+  const [currentCategory, setCurrentCategory] = useState(editing?.categoria || 'Videojuego')
+
+  return (
+    <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}>
+      <form className="modal" onSubmit={onSubmit} style={{ width: 'min(100%, 750px)' }}>
+        <div className="modal-head">
+          <div><span className="eyebrow">CATÁLOGO</span><h2>{editing ? 'Editar' : 'Nuevo'} producto</h2></div>
+          <button type="button" className="icon-button" onClick={onClose}><X/></button>
+        </div>
+        
+        <div style={{ display: 'flex', gap: '20px' }}>
+          {/* Formulario (Izquierda) */}
+          <div style={{ flex: 1, display: 'grid', gap: '14px' }}>
+            <div className="form-field"><label>Nombre</label><input name="name" required defaultValue={editing?.nombre} placeholder="Ej. Super Mario"/></div>
+            <div className="form-field"><label>SKU</label><input name="sku" defaultValue={editing?.sku} placeholder="GV-006"/></div>
+            <div className="form-field">
+              <label>Categoría</label>
+              <select 
+                name="category" 
+                value={currentCategory} 
+                onChange={(e) => setCurrentCategory(e.target.value)} // Actualiza el 3D al cambiar
+              >
+                <option value="Videojuego">Videojuego</option>
+                <option value="Consola">Consola</option>
+                <option value="Accesorio">Accesorio</option>
+              </select>
+            </div>
+            <div className="form-field"><label>Precio (Bs)</label><input name="price" type="number" min="0" step="0.01" required defaultValue={editing?.precio} placeholder="0.00"/></div>
+            <div className="form-field"><label>Stock</label><input name="stock" type="number" min="0" step="1" required defaultValue={editing?.stock} placeholder="0"/></div>
+          </div>
+
+          {/* Visor 3D (Derecha) */}
+          <div style={{ flex: 1, background: '#0d110e', borderRadius: '12px', border: '1px solid #2a352c', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
+            <span style={{ position: 'absolute', top: 15, fontSize: '10px', color: '#60a5fa', letterSpacing: '2px', fontWeight: 'bold' }}>VISTA PREVIA 3D</span>
+            <div style={{ width: '100%', height: '250px' }}>
+              <Canvas camera={{ position: [0, 0, 7], fov: 50 }}>
+                <ambientLight intensity={0.6} />
+                <directionalLight position={[10, 10, 5]} intensity={1.5} />
+                <Float speed={2} rotationIntensity={0.5} floatIntensity={1}>
+                  <Product3D category={currentCategory} />
+                </Float>
+              </Canvas>
+            </div>
+            <p style={{ fontSize: '10px', color: '#64748b' }}>Arrastra para girar</p>
+          </div>
+        </div>
+
+        <div className="modal-actions">
+          <button type="button" className="secondary-button" onClick={onClose}>Cancelar</button>
+          <button className="primary-button" type="submit"><Check size={16}/>{editing ? 'Guardar' : 'Registrar'}</button>
+        </div>
+      </form>
+    </div>
+  )
+}
 function Empty({ icon: Icon, title, text }) { return <div className="empty-state"><div><Icon size={23}/></div><b>{title}</b><p>{text}</p></div> }
 
